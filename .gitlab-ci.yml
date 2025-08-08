@@ -1,0 +1,36 @@
+stages: [test, build, deploy]
+
+variables:
+  DOCKER_DRIVER: overlay2
+  IMAGE_NAME: $CI_REGISTRY_IMAGE/imdb-svc
+  KUBE_NAMESPACE: mlops-demo
+
+test:
+  image: python:3.10
+  stage: test
+  script:
+    - pip install -r app/requirements.v1.txt datasets mlflow
+    - python -c "print('smoke ok')"
+
+build:
+  image: docker:24
+  stage: build
+  services: [docker:24-dind]
+  script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY -p $CI_REGISTRY_PASSWORD
+    - docker build -f docker/Dockerfile.v1 -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
+    - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+  only: [branches, tags]
+
+deploy:
+  image: bitnami/kubectl:1.29
+  stage: deploy
+  script:
+    - echo "$KUBECONFIG_CONTENT" | base64 -d > kubeconfig
+    - export KUBECONFIG=$PWD/kubeconfig
+    - kubectl -n $KUBE_NAMESPACE set image deployment/sentiment-v1 app=$IMAGE_NAME:$CI_COMMIT_SHORT_SHA --record || \
+      kubectl apply -f k8s/namespace.yaml -f k8s/service.yaml -f k8s/deployment-v1.yaml
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/sentiment-v1
+  environment:
+    name: staging
+  only: [branches, tags]

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-v2
+  namespace: mlops-demo
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sentiment, version: v2 } }
+  template:
+    metadata:
+      labels: { app: sentiment, version: v2 }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: app
+          image: imdb-svc:v2
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: MODEL_NAME
+              value: sentiment-imdb
+            - name: MODEL_STAGE
+              value: Staging
+          readinessProbe: { httpGet: { path: /healthz, port: 8080 }, initialDelaySeconds: 5, periodSeconds: 5 }
+          livenessProbe:  { httpGet: { path: /healthz, port: 8080 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits:   { cpu: "1", memory: "1Gi" }
