@@ -13,8 +13,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
     ports: ["9000:9000", "9001:9001"]
     volumes: [minio_data:/data]
     networks: [mlops]
@@ -24,7 +24,7 @@ services:
     depends_on: [minio]
     entrypoint: |
       sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minio} ${MINIO_ROOT_PASSWORD:-minio123} &&
       mc mb -p local/mlflow || true &&
       mc anonymous set download local/mlflow || true &&
       tail -f /dev/null
@@ -42,6 +42,22 @@ services:
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
     command: mlflow server --host 0.0.0.0 --port 5001 --backend-store-uri ${MLFLOW_BACKEND_DB} --default-artifact-root ${MLFLOW_ARTIFACT_S3}
     ports: ["${MLFLOW_PORT}:5001"]
+    networks: [mlops]
+
+  imdb-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.v1
+    depends_on: [mlflow]
+    environment:
+      MODEL_NAME: sentiment-imdb
+      MODEL_STAGE: Staging
+      # Доступ к MLflow/MinIO внутри сети compose
+      MLFLOW_TRACKING_URI: http://mlflow:5001
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+    ports: ["8088:8080"]
     networks: [mlops]
 
   prometheus:
@@ -86,6 +102,7 @@ services:
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
     volumes:
       - ../airflow/dags:/opt/airflow/dags
+      - ../training:/opt/airflow/training
     command: bash -c "airflow db init && airflow scheduler"
     networks: [mlops]
 
@@ -99,6 +116,7 @@ services:
       PYTHONPATH: /opt/airflow
     volumes:
       - ../airflow/dags:/opt/airflow/dags
+      - ../training:/opt/airflow/training
     ports: ["8080:8080"]
     command: bash -c "airflow webserver"
     networks: [mlops]
